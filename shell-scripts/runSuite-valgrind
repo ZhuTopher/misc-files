@@ -1,0 +1,64 @@
+#! /bin/bash
+
+# TODO: Add an optional 'verbose' flag to show commented out lines
+
+if [ ${#} -ne 2 ]; then
+	>&2 echo "Invalid number of input parameters; expected a suiteFile and a program."
+	exit 1
+fi
+
+for testFile in $(cat "$1"); do
+#	echo "TESTING: $testFile"
+
+	if ! [ -r "$testFile.in" ]; then 
+       		>&2 echo "Test failed: $testFile specified in "$1" but could not open the .in file."
+        	exit 1
+	elif ! [ -r "$testFile.out" ]; then
+                >&2 echo "Test failed: $testFile specified in "$1" but could not open the .out file."
+                exit 1
+        fi
+
+	hasArgs=0;
+        # Edge case, args exists but are unreadable
+        if [ -f "$testFile.args" ]; then
+		if ! [ -r "$testFile.args" ]; then
+			>&2 echo "Test failed: $testFile specified in "$1" but could not open the .arg file."
+	                exit 1
+		else
+#			echo "Test "$testFile" has args."
+                	hasArgs=1;
+		fi
+        fi
+	
+	actualOutFile=$(mktemp -p /tmp runSuiteTmp.XXX)
+#	echo "Temp file is "$actualOutFile""
+
+	# Edge-case; if there are no inputs do not pipe in the empty file
+	if [ $hasArgs -eq 1 ]; then
+		valgrind --leak-check=full "$2" $(cat "$testFile.args") < "$testFile.in" > $actualOutFile
+	else # no .args file
+		valgrind --leak-check=full "$2" < "$testFile.in" > $actualOutFile
+	fi
+	
+# TODO: warning message if supplied program encountered an error
+#	if [ $? -ne 0 ]; then 
+#		echo "Program "$2" encountered an error while testing "$testFile"."
+#		rm $actualOutFile 2> /dev/null
+#		exit 1
+#	fi 
+
+	diff -s $actualOutFile "$testFile.out" &> /dev/null
+	if [ $? -ne 0 ]; then
+		echo "Test failed: $testFile"
+		echo "Input:"
+		cat "$testFile.in"
+		echo "Expected:"
+		cat "$testFile.out"
+		echo "Actual:"
+		cat $actualOutFile
+	fi
+
+	rm $actualOutFile &> /dev/null
+
+done
+
