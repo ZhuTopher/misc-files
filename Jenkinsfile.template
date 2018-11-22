@@ -1,0 +1,76 @@
+def svc_name = 'example'
+def target_registry = 'docker-registry-default.router.default.svc.cluster.local'
+def target_project = 'docker-registry'
+def target_tag = 'latest'
+def image_str
+
+pipeline {
+    agent any
+    stages {
+        stage('Image Tag setup') {
+            steps {
+                // running `printenv` to aid in debugging
+                sh 'printenv'
+
+                script {
+                    if (env.BRANCH_NAME == 'master') {
+                        /*
+                        *  TODO: once we integrate the use of `master` branches,
+                        *  we should make each new `master` build a 'tagged' release
+                        */
+                    } else if (env.BRANCH_NAME != 'develop') {
+                        target_tag = "${env.BRANCH_NAME}-${target_tag}"
+                    } // else `develop` just uses ${target_tag}
+
+                    image_str = "${target_registry}/${target_project}/${svc_name}:${target_tag}"
+                }
+
+                sh "echo ${image_str}"
+            }
+        }
+        stage('Build') {
+            steps {
+                sh """
+                docker build \
+                    -t "${image_str}" \
+                    .
+                """
+            }
+        }
+        stage('Test') {
+            steps {
+                // TODO: Implement local image testing
+                echo "Test goes here..."
+
+                // May override env vars with `docker run -e <VAR>=<VALUE>`
+                // docker run "${image_str}" <COMMAND>
+            }
+        }
+        stage('Teardown') {
+            steps {
+                // TODO: Stop any running containers from the test
+                echo "Teardown goes here..."
+            }
+        }
+        stage('Deploy') {
+            steps {
+                // this essentially performs a `docker login` to the specified registry
+                withDockerServer([uri: 'unix:///var/run/docker.sock', credentialsId: 'docker-registry-creds']) {
+                    withDockerRegistry([url: "https://docker-registry-default.router.default.svc.cluster.local", credentialsId: 'docker-registry-creds']) {
+                        sh """
+                        docker push "${image_str}"
+                        """
+                    }
+                }
+            }
+        }
+        stage('Cleanup') {
+            steps {
+                sh """
+                docker image prune -f
+                docker container prune -f
+                """
+            }
+        }
+    }
+}
